@@ -1,0 +1,166 @@
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///
+///
+/// GamePad制御
+/// 
+/// Main: GamePad.cpp
+/// 
+///
+/// 
+/// 
+///	
+///   履歴	
+///   2024/10/14 V1.00 First
+///
+///
+///                        Copyright(c) 2024, Retar.jp, All Rights Reserved.
+///                        http://www.retar.jp/
+/// 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Windows ヘッダー ファイル
+//#define WIN32_LEAN_AND_MEAN										// Windows ヘッダーからほとんど使用されていない部分を除外する
+#include <Windows.h>
+#include <thread>
+#include <iostream>
+#include <string>
+#include <time.h>
+#include <cstdio>
+#include <io.h>
+#include <sstream>
+#include <fstream>
+#include <fcntl.h>
+#include <stddef.h>
+#include <vector>
+#include <iomanip>
+#include <shellapi.h>
+#include <tchar.h>
+#include <mutex>
+#include <regex>
+#include <algorithm>
+#include <random>
+//#include <Xinput.h>			//古いPS2ゲームコントローラーらしい
+#include <dinput.h>				//HIDゲームコントローラー用
+//
+#include "GamePad.h"
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//ディストラクタ
+GanePadOBJ::~GanePadOBJ()
+{
+	//コントラクタは動かんけど、ディストラクタは動く！
+	// 
+	//ゲームコントローラー解放
+	deinitGamePad();
+	//
+	return;
+}
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//ゲームコントローラー初期化
+void GanePadOBJ::initGamePad()
+{
+	// DirectInputの初期化
+	if (DirectInput8Create(GetModuleHandle(NULL), DIRECTINPUT_VERSION, IID_IDirectInput8, (void**)&gameInput, NULL) != DI_OK) {
+		//std::cout << "DirectInput initialization failed." << std::endl;
+		*eFlag = FALSE;
+		return;
+	}
+
+	// ジョイスティックの初期化
+	if (gameInput->CreateDevice(GUID_Joystick, &gameJoystick, NULL) != DI_OK) {
+		//std::cout << "Joystick initialization failed." << std::endl;
+		gameInput->Release();
+		*eFlag = FALSE;
+		return;
+	}
+
+	// データフォーマットの設定  c_dfDIJoystick -> c_dfDIJoystick2 ・・・これ！！！
+	if (gameJoystick->SetDataFormat(&c_dfDIJoystick2) != DI_OK)
+	{
+		std::cout << "Failed to set joystick data format." << std::endl;
+		gameJoystick->Release();
+		gameInput->Release();
+		*eFlag = FALSE;
+		return;
+	}
+
+	// 協調モードの設定
+	if (gameJoystick->SetCooperativeLevel(NULL, DISCL_BACKGROUND | DISCL_NONEXCLUSIVE) != DI_OK) {
+		std::cout << "Failed to set cooperative level." << std::endl;
+		gameJoystick->Release();
+		gameInput->Release();
+		*eFlag = FALSE;
+		return;
+	}
+
+	// ジョイスティックのアクセス権取得
+	if (gameJoystick->Acquire() != DI_OK) {
+		std::cout << "Failed to acquire joystick." << std::endl;
+		gameJoystick->Release();
+		gameInput->Release();
+		*eFlag = FALSE;
+		return;
+	}
+	//
+	*eFlag = TRUE;
+	return;
+}
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//ゲームコントローラー解放
+void GanePadOBJ::deinitGamePad()
+{
+	if (*eFlag == TRUE)
+	{
+		// リソースの解放
+		gameJoystick->Unacquire();
+		gameJoystick->Release();
+		gameInput->Release();
+		*eFlag = FALSE;
+	}
+	return;
+}
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 実際の処理を行うメソッド
+void GanePadOBJ::InputThread()
+{
+	/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	//ゲームコントローラー初期化
+	initGamePad();
+	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	//ゲームパッド
+	while (*eFlag)
+	{
+		/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		//ゲームパッド 入力データの取得
+		DIJOYSTATE2 js = {};
+		HRESULT hr = gameJoystick->GetDeviceState(sizeof(DIJOYSTATE2), &js);
+		if (hr == DI_OK)
+		{
+			/////////////////////////////////////////////////////////////////////////////////////////////////////////
+			//リターンに入れる
+			*toMode = js;
+			/////////////////////////////////////////////////////////////////////////////////////////////////////////
+			//DEBUG データサンプル
+			std::cout << "IX:IY:IZ" << std::endl;
+			std::cout
+				<< js.lX
+				<< ":" << js.lY
+				<< ":" << js.lZ
+				<< std::endl;
+			// X秒間プログラムを停止
+			std::chrono::milliseconds sleepDuration(500);
+			std::this_thread::sleep_for(sleepDuration);
+			/////////////////////////////////////////////////////////////////////////////////////////////////////////
+		}
+		/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		// X秒間プログラムを停止
+		std::chrono::milliseconds sleepDuration(renewTime);
+		std::this_thread::sleep_for(sleepDuration);
+		/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	}
+	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	//// X秒間プログラムを停止 =>スレッドで入れないと電気食いになります
+	deinitGamePad();
+	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	return;
+	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+}
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
